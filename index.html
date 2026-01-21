@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tourism Insights Croatia</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="header">
+    <h1>Tourism Insights Croatia</h1>
+
+    <div class="controls">
+      <label>
+        Year
+        <select id="yearSelect"></select>
+      </label>
+
+      <label>
+        Month
+        <select id="monthSelect"></select>
+      </label>
+
+      <label>
+        Metric
+        <select id="metricSelect">
+          <option value="nights">Nights</option>
+          <option value="arrivals">Arrivals</option>
+        </select>
+      </label>
+
+      <button id="resetBtn">Reset</button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <h2>Map (Counties)</h2>
+      <svg id="mapSvg"></svg>
+      <div id="mapLegend" class="legend"></div>
+    </section>
+
+    <section class="card">
+      <h2>Seasonality</h2>
+      <svg id="lineSvg"></svg>
+    </section>
+
+    <section class="card">
+      <h2>Top Countries of Origin</h2>
+      <svg id="barSvg"></svg>
+    </section>
+
+    <section class="card">
+      <h2>Tourism Intensity (Towns/Municipalities)</h2>
+      <svg id="scatterSvg"></svg>
+    </section>
+  </main>
+
+  <div id="tooltip" class="tooltip" style="opacity:0"></div>
+
+  <!-- D3 (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+
+  <!-- App -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
