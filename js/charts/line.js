@@ -45,7 +45,10 @@ export function createLineChart({ svg, tooltipEl }) {
 
     gx.attr("transform", `translate(0,${height})`)
       .call(d3.axisBottom(x).ticks(12).tickFormat(m => MONTHS[m-1]));
-    gy.call(d3.axisLeft(y).ticks(6));
+    gy.call(d3.axisLeft(y)
+  .ticks(6)
+  .tickFormat(d3.format("~s"))
+);
 
     // labels
     seriesG.selectAll("text.metricLabel").data([0]).join("text")

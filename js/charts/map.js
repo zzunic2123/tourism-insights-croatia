@@ -65,8 +65,11 @@ export function createMapChart({ svg, legendEl, tooltipEl }) {
     .attr("class", "county")
     .attr("d", path)
     .attr("fill", d => color(valuesByCountyKey.get(keyOf(d)) ?? 0))
-    .attr("stroke", "#ffffff")
-    .attr("stroke-width", 1.2)
+    .attr("stroke", "rgba(0,0,0,0.35)")
+    .attr("stroke-width", 1.4)
+    .attr("vector-effect", "non-scaling-stroke")
+    .attr("shape-rendering", "geometricPrecision")
+
     .style("cursor", "pointer")
     .on("mousemove", (event, d) => {
       const key = keyOf(d);
@@ -104,6 +107,20 @@ export function createMapChart({ svg, legendEl, tooltipEl }) {
         .attr("stroke-width", 3);
     }
   }
+
+  // Outer border (national outline)
+    const outline = { type: "FeatureCollection", features: geojson.features };
+    const outer = overlay.selectAll("path.outer").data([outline]);
+
+    outer.join("path")
+    .attr("class", "outer")
+    .attr("d", path)
+    .attr("fill", "none")
+    .attr("stroke", "rgba(0,0,0,0.6)")
+    .attr("stroke-width", 2.2)
+    .attr("vector-effect", "non-scaling-stroke")
+    .attr("pointer-events", "none");
+
 }
 
 

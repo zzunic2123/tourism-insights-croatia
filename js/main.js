@@ -26,6 +26,7 @@ const scatterSvg = d3.select("#scatterSvg");
 const mapLegendEl = document.getElementById("mapLegend");
 const barEmptyEl = document.getElementById("barEmpty");
 
+
 // Charts
 const mapChart = createMapChart({ svg: mapSvg, legendEl: mapLegendEl, tooltipEl });
 const lineChart = createLineChart({ svg: lineSvg, tooltipEl });
@@ -36,6 +37,7 @@ let DATA = null;
 
 // Precomputed indexes (fast updates)
 let countyMonthIndex = null;
+let townToCounty = new Map(); // spatial_unit -> county_key
 
 function ymKey(y,m){ return `${y}-${String(m).padStart(2,"0")}`; }
 
@@ -121,6 +123,24 @@ async function loadData() {
   const hrWide = hrWideRaw;
   const intensityLong = intensityLongRaw;
 
+
+  for (const r of intensityLongRaw) {
+    // uzimamo samo gradove/opcine (ne agregate)
+    if (r.spatial_level !== "municipality") continue;
+
+    const town = String(r.spatial_unit ?? "").trim();
+    const county = String(r.county_key ?? "").trim();
+
+    if (!town || !county) continue;
+
+    // ako se isti town pojavi vise puta s drugacijim county -> log warning
+    if (townToCounty.has(town) && townToCounty.get(town) !== county) {
+      console.warn(`[townToCounty] collision: "${town}" -> "${townToCounty.get(town)}" vs "${county}"`);
+    } else {
+      townToCounty.set(town, county);
+    }
+  }
+
   // Index for map: (year-month) -> Map(county_key -> value)
   const grouped = d3.group(countyTotals, d => ymKey(d.year, d.month));
   countyMonthIndex = new Map();
@@ -149,18 +169,12 @@ function initControls(meta) {
 
   setState({ year: defaultYear });
 
-  ui.monthRange.value = String(state.month);
-  ui.monthLabel.textContent = MONTHS[state.month - 1];
 
   ui.metricSelect.value = state.metric;
   ui.yearSelect.value = String(defaultYear);
 
   ui.yearSelect.addEventListener("change", () => setState({ year: +ui.yearSelect.value }));
-  ui.monthRange.addEventListener("input", () => {
-    const m = +ui.monthRange.value;
-    ui.monthLabel.textContent = MONTHS[m - 1];
-    setState({ month: m });
-  });
+
   ui.metricSelect.addEventListener("change", () => setState({ metric: ui.metricSelect.value }));
 
   ui.resetBtn.addEventListener("click", () => setState({ countyKey: null }));
@@ -179,7 +193,7 @@ function updateAll() {
   mapChart.update({ geojson: geo, valuesByCountyKey, state });
   lineChart.update({ hrMonthlyWide: hrWide, countyMonthlyTotals: countyTotals, state });
   barsChart.update({ originLong, state });
-  scatterChart.update({ intensityLong, state });
+  scatterChart.update({ intensityLong, townToCounty, state });
 }
 
 async function main() {
