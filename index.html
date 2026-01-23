@@ -7,8 +7,11 @@
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-  <header class="header">
-    <h1>Tourism Insights Croatia</h1>
+  <header class="topbar">
+    <div class="title">
+      <h1>Tourism Insights Croatia</h1>
+      <p>Interactive exploration of arrivals, nights, and tourism intensity</p>
+    </div>
 
     <div class="controls">
       <label>
@@ -18,7 +21,8 @@
 
       <label>
         Month
-        <select id="monthSelect"></select>
+        <input id="monthRange" type="range" min="1" max="12" step="1" />
+        <span id="monthLabel"></span>
       </label>
 
       <label>
@@ -29,39 +33,49 @@
         </select>
       </label>
 
-      <button id="resetBtn">Reset</button>
+      <button id="resetBtn" class="btn">Reset county</button>
     </div>
   </header>
 
   <main class="grid">
     <section class="card">
-      <h2>Map (Counties)</h2>
+      <div class="cardHead">
+        <h2>1) Choropleth map (counties)</h2>
+        <div id="mapLegend" class="legend"></div>
+      </div>
       <svg id="mapSvg"></svg>
-      <div id="mapLegend" class="legend"></div>
+      <div class="hint">Click a county to filter other views. Hover for details.</div>
     </section>
 
     <section class="card">
-      <h2>Seasonality</h2>
+      <div class="cardHead">
+        <h2>2) Seasonality (Croatia vs selected county)</h2>
+      </div>
       <svg id="lineSvg"></svg>
+      <div class="hint">Click a month point to update the dashboard month.</div>
     </section>
 
     <section class="card">
-      <h2>Top Countries of Origin</h2>
+      <div class="cardHead">
+        <h2>3) Top origin countries (selected county)</h2>
+      </div>
       <svg id="barSvg"></svg>
+      <div id="barEmpty" class="emptyState">Select a county on the map to see top origin countries.</div>
     </section>
 
     <section class="card">
-      <h2>Tourism Intensity (Towns/Municipalities)</h2>
+      <div class="cardHead">
+        <h2>4) Tourism intensity (towns/municipalities)</h2>
+      </div>
       <svg id="scatterSvg"></svg>
+      <div class="hint">Year filter applies. Size encodes permanent beds.</div>
     </section>
   </main>
 
   <div id="tooltip" class="tooltip" style="opacity:0"></div>
 
-  <!-- D3 (CDN) -->
+  <!-- D3 -->
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-
-  <!-- App -->
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

@@ -1,83 +1,195 @@
-import { state } from "./state.js";
+import { state, setState, subscribe } from "./state.js";
+import { MONTHS } from "./utils.js";
 
-const paths = {
-  t12: "data/table1.2.csv",
-  t13: "data/table1.3.csv",
-  t19: "data/table1.9.csv",
-  geo: "data/zupanije_GeoJson.json",
-};
+import { createMapChart } from "./charts/map.js";
+import { createLineChart } from "./charts/line.js";
+import { createBarsChart } from "./charts/bars.js";
+import { createScatterChart } from "./charts/scatter.js";
+
+const PATH = "data/normalized/";
 
 const ui = {
-  year: document.getElementById("yearSelect"),
-  month: document.getElementById("monthSelect"),
-  metric: document.getElementById("metricSelect"),
-  reset: document.getElementById("resetBtn"),
+  yearSelect: document.getElementById("yearSelect"),
+  monthRange: document.getElementById("monthRange"),
+  monthLabel: document.getElementById("monthLabel"),
+  metricSelect: document.getElementById("metricSelect"),
+  resetBtn: document.getElementById("resetBtn"),
 };
 
-function parseNumber(v) {
-  if (v == null) return null;
-  const s = String(v).trim();
-  if (s === "" || s === "-" || s.toLowerCase() === "z") return null;
-  // EU format fallback (if any): "1.234,56" -> "1234.56"
-  const normalized = s.replace(/\./g, "").replace(",", ".");
-  const num = Number(normalized);
-  return Number.isFinite(num) ? num : null;
-}
+const tooltipEl = document.getElementById("tooltip");
 
-function parseTable12(row) {
-  // probaj pogoditi kolone bez da pucamo ako se razlikuju:
-  // prilagodi nakon što vidiš headere
-  return { ...row };
-}
+const mapSvg = d3.select("#mapSvg");
+const lineSvg = d3.select("#lineSvg");
+const barSvg = d3.select("#barSvg");
+const scatterSvg = d3.select("#scatterSvg");
 
-async function loadAll() {
-  const [t12, t13, t19, geo] = await Promise.all([
-    d3.csv(paths.t12),
-    d3.csv(paths.t13),
-    d3.csv(paths.t19),
-    d3.json(paths.geo),
-  ]);
+const mapLegendEl = document.getElementById("mapLegend");
+const barEmptyEl = document.getElementById("barEmpty");
 
-  return { t12, t13, t19, geo };
-}
-
-function initControls({ t12 }) {
-  // Izvuci godine/mjesece iz table1.2 (najlakse)
-  // Ako table1.2 nema year/month kao kolone, prilagodit cemo nakon.
-  const years = Array.from(new Set(t12.map(d => d.Year || d.year).filter(Boolean))).sort();
-  const months = Array.from(new Set(t12.map(d => d.Month || d.month).filter(Boolean)));
-
-  // fallback ako nema:
-  if (years.length === 0) {
-    // Ako nema Year, ručno postavi (ili izvuci iz headera kasnije)
-    console.warn("Year column not found in table1.2 - adjust parser.");
-  }
-
-  ui.year.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join("");
-  ui.month.innerHTML = months.map(m => `<option value="${m}">${m}</option>`).join("");
-
-  state.year = years.at(-1) ?? null;
-  state.month = months.at(0) ?? null;
-
-  ui.year.value = state.year ?? "";
-  ui.month.value = state.month ?? "";
-  ui.metric.value = state.metric;
-
-  ui.year.addEventListener("change", () => { state.year = ui.year.value; updateAll(); });
-  ui.month.addEventListener("change", () => { state.month = ui.month.value; updateAll(); });
-  ui.metric.addEventListener("change", () => { state.metric = ui.metric.value; updateAll(); });
-  ui.reset.addEventListener("click", () => { state.county = null; updateAll(); });
-}
+// Charts
+const mapChart = createMapChart({ svg: mapSvg, legendEl: mapLegendEl, tooltipEl });
+const lineChart = createLineChart({ svg: lineSvg, tooltipEl });
+const barsChart = createBarsChart({ svg: barSvg, tooltipEl, emptyEl: barEmptyEl });
+const scatterChart = createScatterChart({ svg: scatterSvg, tooltipEl });
 
 let DATA = null;
 
-function updateAll() {
-  // TODO: ovdje zoves updateMap / updateLine / updateBars / updateScatter
-  console.log("updateAll", structuredClone(state));
+// Precomputed indexes (fast updates)
+let countyMonthIndex = null;
+
+function ymKey(y,m){ return `${y}-${String(m).padStart(2,"0")}`; }
+
+function normalizeCountyKey(raw) {
+  if (raw == null) return null;
+
+  let k = String(raw)
+    .toLowerCase()
+    .replace(/\ufeff/g, "")
+    .trim()
+    .replace(/-/g, " ")
+    .replace(/\s+/g, " ");
+
+  // makni moguce sufikse
+  k = k.replace(/\s+zupanija$/i, "").trim();
+
+  // REMAP za problematicne zapise iz normalized.zip
+  const remap = new Map([
+    ["istria", "istarska"],
+    ["slavonski brod posavina", "brodsko posavska"],
+    ["vukovar sirmium", "vukovarsko srijemska"],
+  ]);
+
+  return remap.get(k) ?? k;
 }
 
-(async function main() {
-  DATA = await loadAll();
-  initControls(DATA);
+
+async function loadData() {
+  const [geo, countyTotalsRaw, hrWideRaw, originLongRaw, intensityLongRaw, meta] = await Promise.all([
+    d3.json(PATH + "zupanije_simplified.geojson"),
+    d3.csv(PATH + "tourism_counties_monthly_total.csv", d3.autoType),
+    d3.csv(PATH + "tourism_hr_monthly_wide.csv", d3.autoType),
+    d3.csv(PATH + "tourism_origin_long.csv", d3.autoType),
+    d3.csv(PATH + "tourism_intensity_long.csv", d3.autoType),
+    d3.json(PATH + "meta.json"),
+  ]);
+
+  // ---- helperi za pronalazak kolona (radi i ako imaju BOM / razmake) ----
+  const cleanKey = (k) => k.replace(/\ufeff/g, "").trim();
+  const findCol = (obj, wanted) =>
+    Object.keys(obj).find(k => cleanKey(k) === wanted);
+
+  function normalizeCountyTotals(rows) {
+    if (!rows.length) return rows;
+
+    const kCounty = findCol(rows[0], "county_key");
+    const kYear   = findCol(rows[0], "year");
+    const kMonth  = findCol(rows[0], "month");
+    const kArr    = findCol(rows[0], "arrivals");
+    const kNig    = findCol(rows[0], "nights");
+
+    return rows.map(r => ({
+      county_key: normalizeCountyKey(r[kCounty]),
+      year: +r[kYear],
+      month: +r[kMonth],
+      arrivals: r[kArr] == null ? null : +r[kArr],
+      nights: r[kNig] == null ? null : +r[kNig]
+    }));
+  }
+
+  function normalizeOriginLong(rows) {
+    if (!rows.length) return rows;
+
+    const kCounty = findCol(rows[0], "county_key");
+    const kYear   = findCol(rows[0], "year");
+    const kMonth  = findCol(rows[0], "month");
+    const kCountry= findCol(rows[0], "origin_country");
+    const kArr    = findCol(rows[0], "arrivals");
+    const kNig    = findCol(rows[0], "nights");
+
+    return rows.map(r => ({
+    county_key: normalizeCountyKey(r[kCounty]),
+      year: +r[kYear],
+      month: +r[kMonth],
+      origin_country: String(r[kCountry]).trim(),
+      arrivals: r[kArr] == null ? null : +r[kArr],
+      nights: r[kNig] == null ? null : +r[kNig],
+    }));
+  }
+
+  const countyTotals = normalizeCountyTotals(countyTotalsRaw);
+  const originLong = normalizeOriginLong(originLongRaw);
+  const hrWide = hrWideRaw;
+  const intensityLong = intensityLongRaw;
+
+  // Index for map: (year-month) -> Map(county_key -> value)
+  const grouped = d3.group(countyTotals, d => ymKey(d.year, d.month));
+  countyMonthIndex = new Map();
+
+  for (const [k, rows] of grouped) {
+    const mp = new Map();
+    for (const r of rows) {
+      mp.set(r.county_key, {
+        arrivals: r.arrivals ?? 0,
+        nights: r.nights ?? 0
+      });
+    }
+    countyMonthIndex.set(k, mp);
+  }
+
+  return { geo, countyTotals, hrWide, originLong, intensityLong, meta };
+}
+
+
+function initControls(meta) {
+  // years: prefer table13 years (map dataset)
+  const years = (meta.years_table13 ?? []).slice().sort((a,b)=>a-b);
+  const defaultYear = years.at(-1) ?? 2024;
+
+  ui.yearSelect.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join("");
+
+  setState({ year: defaultYear });
+
+  ui.monthRange.value = String(state.month);
+  ui.monthLabel.textContent = MONTHS[state.month - 1];
+
+  ui.metricSelect.value = state.metric;
+  ui.yearSelect.value = String(defaultYear);
+
+  ui.yearSelect.addEventListener("change", () => setState({ year: +ui.yearSelect.value }));
+  ui.monthRange.addEventListener("input", () => {
+    const m = +ui.monthRange.value;
+    ui.monthLabel.textContent = MONTHS[m - 1];
+    setState({ month: m });
+  });
+  ui.metricSelect.addEventListener("change", () => setState({ metric: ui.metricSelect.value }));
+
+  ui.resetBtn.addEventListener("click", () => setState({ countyKey: null }));
+}
+
+function updateAll() {
+  const { geo, countyTotals, hrWide, originLong, intensityLong } = DATA;
+
+  // Map values for current year-month
+  const idx = countyMonthIndex.get(ymKey(state.year, state.month)) ?? new Map();
+  const valuesByCountyKey = new Map();
+  for (const [key, obj] of idx.entries()) {
+    valuesByCountyKey.set(key, state.metric === "arrivals" ? obj.arrivals : obj.nights);
+  }
+
+  mapChart.update({ geojson: geo, valuesByCountyKey, state });
+  lineChart.update({ hrMonthlyWide: hrWide, countyMonthlyTotals: countyTotals, state });
+  barsChart.update({ originLong, state });
+  scatterChart.update({ intensityLong, state });
+}
+
+async function main() {
+  DATA = await loadData();
+  initControls(DATA.meta);
+
+  subscribe(() => updateAll());
   updateAll();
-})();
+
+  window.addEventListener("resize", () => updateAll());
+}
+
+main();
